@@ -8,30 +8,42 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
 
-
 @Serializable
 sealed class DraggableItem {
 
     abstract val id: Int
     abstract var position: Offset
-    abstract fun copy(id: Int=this.id,position: Offset=this.position) :DraggableItem
-@Serializable
+    abstract fun copy(id: Int = this.id, position: Offset = this.position): DraggableItem
+
+    @Serializable
     data class VariableKey(
         override val id: Int,
         override var position: Offset,
-        var keyCode:Int? = null,
+        var keyCode: Int? = null,
         var size: Int
-    ) : DraggableItem(){
+    ) : DraggableItem() {
         override fun copy(id: Int, position: Offset): DraggableItem =
             VariableKey(id, position, keyCode, size)
+    }
 
+    // --- ADDED MACRO KEY CLASS ---
+    @Serializable
+    data class MacroKey(
+        override val id: Int,
+        override var position: Offset,
+        var keyCode: Int? = null,
+        var size: Int = 0,
+        var delayMs: Long = 100L // Default tap interval
+    ) : DraggableItem() {
+        override fun copy(id: Int, position: Offset): DraggableItem =
+            MacroKey(id, position, keyCode, size, delayMs)
     }
 
     @Serializable
     data class WASDGroup(
         override val id: Int,
-        override var position:Offset,
-        var scale: Float=1f,
+        override var position: Offset,
+        var scale: Float = 1f,
         var center: Offset = Offset.Zero,
         var w: Offset = Offset.Zero,
         var a: Offset = Offset.Zero,
@@ -39,7 +51,7 @@ sealed class DraggableItem {
         var d: Offset = Offset.Zero,
     ) : DraggableItem() {
         override fun copy(id: Int, position: Offset): DraggableItem =
-            WASDGroup(id, position,scale, center, w, a, s, d)
+            WASDGroup(id, position, scale, center, w, a, s, d)
     }
 
     @Serializable
@@ -50,22 +62,23 @@ sealed class DraggableItem {
         val type: DraggableItemType,
         var keyCode: Int,
         var size: Int
-    ) : DraggableItem(){
+    ) : DraggableItem() {
         override fun copy(id: Int, position: Offset): DraggableItem =
             FixedKey(id, position, type, keyCode, size)
     }
+
     @Serializable
     data class CancelableKey(
         override val id: Int,
         override var position: Offset,
-        var cancelPosition :Offset,
+        var cancelPosition: Offset,
         @SerialName("itemType")
         val type: DraggableItemType,
-        var keyCode: Int?=null,
+        var keyCode: Int? = null,
         var size: Int
-    ) : DraggableItem(){
+    ) : DraggableItem() {
         override fun copy(id: Int, position: Offset): DraggableItem =
-            CancelableKey(id, position,cancelPosition, type, keyCode, size)
+            CancelableKey(id, position, cancelPosition, type, keyCode, size)
     }
 }
 
@@ -78,11 +91,12 @@ data class KeyMap(
 )
 
 enum class KeymapType {
-    DEFAULT,CANCELABLE
+    DEFAULT, CANCELABLE
 }
 
 @Serializable
 enum class DraggableItemType {
-    //do not change positions of existing items
-    KEY, WASD_KEY, SHOOTING_MODE, FIRE, BAG_MAP , SCOPE
+    // do not change positions of existing items
+    KEY, WASD_KEY, SHOOTING_MODE, FIRE, BAG_MAP, SCOPE, 
+    MACRO // --- ADDED MACRO TYPE ---
 }

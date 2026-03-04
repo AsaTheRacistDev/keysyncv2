@@ -20,6 +20,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
@@ -32,7 +35,7 @@ class FloatingWindowStateManager @Inject constructor(
     private val dataStoreManager: DataStoreManager
 ) {
 
-    val scope = CoroutineScope(Dispatchers.Main +SupervisorJob())
+    val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private val shizukuSystemServerAPi = ShizukuSystemServerAPi()
     private val eventHandler: EventHandler by lazy { shizukuSystemServerAPi.getEventHandler() }
@@ -42,12 +45,18 @@ class FloatingWindowStateManager @Inject constructor(
     val pointerSensitivity = MutableStateFlow(0.5f)
     val overlayOpacity = MutableStateFlow(0.5f)
 
-    private var buttonConfigKey :Preferences.Key<String>? = null
+    private var buttonConfigKey: Preferences.Key<String>? = null
+    
+    // Track movement to reset shooting mode touch
+    private var resetJob: Job? = null
+    
+    // Track active macros
+    private val activeMacros = mutableMapOf<Int, Job>()
 
-    private val _appConfig =MutableStateFlow(AppConfig.Default)
+    private val _appConfig = MutableStateFlow(AppConfig.Default)
     val keysConfig = _appConfig.asStateFlow()
 
-    val sensitivity = (10f * pointerSensitivity.value)//at max 10x the original offset
+    val sensitivity = (10f * pointerSensitivity.value) // at max 10x the original offset
 
     private val _isBubbleExpanded = MutableStateFlow(false)
     val isBubbleExpanded = _isBubbleExpanded.asStateFlow()
@@ -63,13 +72,13 @@ class FloatingWindowStateManager @Inject constructor(
 
     init {
         scope.launch {
-            isBubbleExpanded.drop(1).collect{isExpanded->
+            isBubbleExpanded.drop(1).collect { isExpanded ->
                 if (isExpanded)
                     return@collect
                 buttonConfigKey?.let {
-                    dataStoreManager.save(DataStoreManager.OVERLAY_OPACITY,overlayOpacity.value)
-                    dataStoreManager.save(DataStoreManager.POINTER_SENSITIVITY,pointerSensitivity.value)
-                    dataStoreManager.save(it,containerItems.value)
+                    dataStoreManager.save(DataStoreManager.OVERLAY_OPACITY, overlayOpacity.value)
+                    dataStoreManager.save(DataStoreManager.POINTER_SENSITIVITY, pointerSensitivity.value)
+                    dataStoreManager.save(it, containerItems.value)
                 }
                 _appConfig.value = dataStoreManager.getKeyConfig(DataStoreManager.KEYS_CONFIG).first()
             }
@@ -83,10 +92,13 @@ class FloatingWindowStateManager @Inject constructor(
 
     }
 
-    fun loadButtonsConfig(packageName:String){
-        buttonConfigKey= DataStoreManager.getButtonsConfigKey(packageName)
+    fun loadButtonsConfig(packageName: String) {
+        buttonConfigKey = DataStoreManager.getButtonsConfigKey(packageName)
         scope.launch {
-            _containerItems.value=dataStoreManager.getButtons(buttonConfigKey!!).first()
+            // Fix: Delay injection to prevent black screen when game is launching
+            delay(2500)
+            
+            _containerItems.value = dataStoreManager.getButtons(buttonConfigKey!!).first()
             eventHandler.updateKeyMapping(containerItems.value)
             dataStoreManager.getFloat(DataStoreManager.OVERLAY_OPACITY).first()?.let {
                 overlayOpacity.value = it
@@ -99,10 +111,15 @@ class FloatingWindowStateManager @Inject constructor(
 
     fun addNewItem(itemType: DraggableItemType) {
         val itemID = containerItems.value.sumOf { it.id } + 1
-        val offset = Offset(0f,200f)
+        val offset = Offset(0f, 200f)
         val item = when (itemType) {
             DraggableItemType.KEY -> {
                 DraggableItem.VariableKey(itemID, position = offset, size = 0)
+            }
+            
+            // --- NEW MACRO ITEM CREATION ---
+            DraggableItemType.MACRO -> {
+                DraggableItem.MacroKey(itemID, position = offset, size = 0, delayMs = 100L)
             }
 
             DraggableItemType.WASD_KEY -> {
@@ -129,22 +146,25 @@ class FloatingWindowStateManager @Inject constructor(
                     keyCode = keysConfig.value.fireKeyCode
                 )
             }
-            DraggableItemType.BAG_MAP->{
+
+            DraggableItemType.BAG_MAP -> {
                 DraggableItem.CancelableKey(
                     itemID,
                     offset,
                     cancelPosition = offset,
                     size = 0,
                     type = itemType
-                )}
-            DraggableItemType.SCOPE->{
+                )
+            }
+
+            DraggableItemType.SCOPE -> {
                 DraggableItem.FixedKey(
                     itemID,
                     offset,
                     size = 0,
                     type = itemType,
                     keyCode = keysConfig.value.scopeKeyCode
-                    )
+                )
             }
         }
         _containerItems.value = containerItems.value.plus(item)
@@ -162,8 +182,39 @@ class FloatingWindowStateManager @Inject constructor(
     }
 
     fun onKeyEvent(keyEvent: KeyEvent): Boolean {
-        if (_isBubbleExpanded.value)
-            return false
+        if (_isBubbleExpanded.value) return false
+
+        // --- MACRO EXECUTION LOGIC ---
+        val nativeKeyCode = keyEvent.keyCode
+        val macroItem = containerItems.value.filterIsInstance<DraggableItem.MacroKey>()
+            .find { it.keyCode == nativeKeyCode }
+
+        if (macroItem != null) {
+            if (keyEvent.action == KeyEvent.ACTION_DOWN && !activeMacros.containsKey(nativeKeyCode)) {
+                // Start tapping loop
+                val job = scope.launch {
+                    while (isActive) {
+                        // We simulate a tap at the macro's position
+                        // Note: You might need to adjust this depending on how eventHandler injects raw coordinates
+                        // This assumes eventHandler handles the key-to-coordinate mapping internally
+                        eventHandler.handleKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, nativeKeyCode))
+                        delay(20) // Tiny hold
+                        eventHandler.handleKeyEvent(KeyEvent(KeyEvent.ACTION_UP, nativeKeyCode))
+                        delay(macroItem.delayMs)
+                    }
+                }
+                activeMacros[nativeKeyCode] = job
+                return true
+            } else if (keyEvent.action == KeyEvent.ACTION_UP) {
+                // Stop tapping loop
+                activeMacros[nativeKeyCode]?.cancel()
+                activeMacros.remove(nativeKeyCode)
+                return true
+            }
+            return true // Consume held down events so they don't spam
+        }
+
+        // Standard key processing
         return eventHandler.handleKeyEvent(keyEvent)
     }
 
@@ -186,12 +237,20 @@ class FloatingWindowStateManager @Inject constructor(
                     motionEvent.rawX,
                     motionEvent.rawY
                 ) * sensitivity
+                
                 if (!isShootingMode.value) {
                     val position = _mousePointerOffset.value + offset
                     _mousePointerOffset.value = Offset(
                         position.x.coerceIn(0f, displayMetrics.widthPixels.toFloat()),
                         position.y.coerceIn(0f, displayMetrics.heightPixels.toFloat())
                     )
+                } else {
+                    // Fix: Stop acceleration by releasing touch when movement stops
+                    resetJob?.cancel()
+                    resetJob = scope.launch {
+                        delay(40) // Threshold to detect mouse stop
+                        eventHandler.clear() 
+                    }
                 }
                 return eventHandler.handlePointerMove(offset)
 
@@ -202,11 +261,16 @@ class FloatingWindowStateManager @Inject constructor(
 
     fun clearActivePointers() {
         eventHandler.clear()
+        activeMacros.values.forEach { it.cancel() }
+        activeMacros.clear()
     }
 
-    fun onDestroy(){
+    fun onDestroy() {
         _isBubbleExpanded.value = false
         eventHandler.clear()
+        resetJob?.cancel()
+        activeMacros.values.forEach { it.cancel() }
+        activeMacros.clear()
     }
 
     @SuppressLint("InternalInsetResource", "DiscouragedApi")

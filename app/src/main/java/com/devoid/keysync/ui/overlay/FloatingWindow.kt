@@ -41,6 +41,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -249,6 +250,52 @@ fun ItemsContainer(
                         )
                     }
 
+                    // --- NEW MACRO KEY LOGIC ---
+                    is DraggableItem.MacroKey -> {
+                        var hasFocus by remember { mutableStateOf(false) }
+                        val keyFocusRequester = remember { FocusRequester() }
+                        var keyCode by remember(item.id) { mutableStateOf(item.keyCode) }
+                        var delayMs by remember(item.id) { mutableLongStateOf(item.delayMs) }
+                        
+                        val text by remember(item.id) {
+                            derivedStateOf {
+                                keyCode?.let {
+                                    KeyEvent.keyCodeToString(it).replace("KEYCODE_", "")
+                                } ?: "?"
+                            }
+                        }
+                        
+                        LaunchedEffect(Unit) {
+                            keyFocusRequester.requestFocus()
+                        }
+
+                        MacroKey(
+                            value = text,
+                            delay = delayMs,
+                            borderColor = if (hasFocus) Color.Cyan else Color.Magenta,
+                            onClick = { keyFocusRequester.requestFocus() },
+                            onLongClick = {
+                                // Simple loop: increments delay by 50ms up to 1000ms
+                                delayMs = if (delayMs >= 1000L) 50L else delayMs + 50L
+                                item.delayMs = delayMs
+                            },
+                            onRemove = { onRemove(item.id) },
+                            modifier = Modifier
+                                .onSizeChanged { item.size = it.width }
+                                .onKeyEvent { keyEvent ->
+                                    val nativeKeyCode = keyEvent.key.nativeKeyCode
+                                    if (nativeKeyCode >= KeyEvent.KEYCODE_DPAD_UP && nativeKeyCode <= KeyEvent.KEYCODE_DPAD_CENTER)
+                                        return@onKeyEvent false
+                                    item.keyCode = nativeKeyCode
+                                    keyCode = nativeKeyCode
+                                    true
+                                }
+                                .onFocusChanged { hasFocus = it.hasFocus }
+                                .focusRequester(keyFocusRequester)
+                                .focusable()
+                        )
+                    }
+
                     is DraggableItem.WASDGroup -> {
                         var size by remember { mutableIntStateOf(0) }
                         WASDKeysGroup(onRemove = {
@@ -403,6 +450,24 @@ fun MenuItems(
                     )
                 }
             }
+            
+            // --- NEW MACRO MENU BUTTON ---
+            item(contentType = DraggableItemType.MACRO) {
+                Column(
+                    Modifier.clickable(onClick = { onItemClick(DraggableItemType.MACRO) }),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(itemModifier, contentAlignment = Alignment.Center) {
+                        Text("M", color = Color.Magenta)
+                    }
+                    Text(
+                        "Macro",
+                        style = TextStyle(fontSize = 8.sp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
             item(contentType = DraggableItemType.WASD_KEY) {
                 Column(
                     Modifier.clickable(onClick = { onItemClick(DraggableItemType.WASD_KEY) }),

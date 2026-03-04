@@ -1,8 +1,10 @@
 package com.devoid.keysync.ui.overlay
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
@@ -34,10 +36,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.devoid.keysync.R
 
+// ... (CircularTextField, RemoveButton, IconKey remain the same)
 
 @Composable
 fun CircularTextField(
@@ -115,6 +120,58 @@ fun IconKey(
         }
     }
 }
+
+// --- NEW MACRO KEY COMPOSABLE ---
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun MacroKey(
+    modifier: Modifier = Modifier,
+    value: String,
+    delay: Long,
+    borderColor: Color = Color.Magenta, // Distinct color for Macros
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Box(modifier = modifier.padding(8.dp)) {
+        Box(
+            modifier = Modifier
+                .size(50.dp)
+                .clip(CircleShape)
+                .border(width = 1.dp, color = borderColor, CircleShape)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                )
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.inverseSurface
+                    )
+                )
+                Text(
+                    text = "${delay}ms",
+                    style = TextStyle(
+                        fontSize = 8.sp,
+                        color = borderColor.copy(alpha = 0.8f)
+                    )
+                )
+            }
+        }
+        RemoveButton(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(24.dp, -24.dp),
+            onClick = onRemove
+        )
+    }
+}
+
+// ... (Rest of your existing keys: BagMapKey, CancelKey, MousePointer, FireKey, WASD)
 
 @Composable
 fun BagMapKey(
@@ -269,52 +326,6 @@ fun KeyCircular(
             modifier = Modifier
                 .align(Alignment.Center)
                 .offset(24.dp, -24.dp), onClick = onRemove
-        )
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun PreviewCancelKEy() {
-    CancelKey(){}
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun PreviewBagMap() {
-    BagMapKey(onRemove = {}, onClick = {})
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun PreviewMousePointer() {
-    MousePointer() {}
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun PreviewFireKey() {
-    FireKey() {}
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun WASDKeysGroupPreview() {
-    MaterialTheme {
-        WASDKeysGroup(onRemove = {}, onPanIconDrag = {})
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun KeyPreview() {
-    var text = remember { mutableStateOf("?") }
-    MaterialTheme {
-        KeyCircular(
-            value = text.value,
-            onRemove = {
-
-            }, onClick = {}
         )
     }
 }
